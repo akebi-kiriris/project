@@ -49,7 +49,6 @@ cursor = db.cursor(dictionary=True, buffered=True)
 @app.route('/timelines/<int:timeline_id>/tasks', methods=['GET'])
 def get_tasks(timeline_id):
     try:
-        # 首先獲取該時間軸的所有任務
         cursor.execute("""
             SELECT 
                 task_id, name, 
@@ -64,7 +63,6 @@ def get_tasks(timeline_id):
         for task in tasks:
             task_id = task["task_id"]
             
-            # 獲取此任務的負責人（role = 0）
             cursor.execute("""
                 SELECT u.name, u.id
                 FROM task_users tu
@@ -73,13 +71,8 @@ def get_tasks(timeline_id):
                 LIMIT 1  # 假設每個任務只有一個負責人
             """, (task_id,))
             assignee = cursor.fetchone()
-            # assignee_info = {
-            #     "id": assignee["id"] if assignee else None,
-            #     "name": assignee["name"] if assignee else None
-            # }
             assignee_info = assignee["name"]
             
-            # 獲取此任務的所有助理（role = 1）
             cursor.execute("""
                 SELECT u.id, u.name 
                 FROM task_users tu
@@ -92,8 +85,8 @@ def get_tasks(timeline_id):
             tasks_response.append({
                 "task_id": task_id,
                 "name": task["name"],
-                "assignee": assignee_info,  # 包含id和name的物件
-                "assistant": assistant_list,  # 包含id和name的物件陣列
+                "assignee": assignee_info, 
+                "assistant": assistant_list,  
                 "start_date": task["start_date"].strftime("%Y-%m-%d %H:%M:%S") if task["start_date"] else None,
                 "end_date": task["end_date"].strftime("%Y-%m-%d %H:%M:%S") if task["end_date"] else None,
                 "completed": bool(task["completed"]),
@@ -117,7 +110,6 @@ def get_task_details(task_id):
         task_id = int(task_id)
         print(f"Fetching details for task ID: {task_id}")
         
-        # 建立新的數據庫連接
         db_conn = mysql.connector.connect(
             host="localhost",
             user="root",
@@ -127,7 +119,6 @@ def get_task_details(task_id):
         )
         cursor = db_conn.cursor(dictionary=True, buffered=True)
 
-        # 查询任务基本信息
         task_sql = """
             SELECT task_id, name, assignee, assistant, start_date, end_date, 
                    completed, timeline_id, created_at, task_remark, isWork
@@ -141,7 +132,6 @@ def get_task_details(task_id):
             print(f"No task found with ID: {task_id}")
             return jsonify({"error": "Task not found"}), 404
 
-        # 查询关联的留言
         comments_sql = """
             SELECT comment_id, user_id, task_message
             FROM task_comments
@@ -150,12 +140,10 @@ def get_task_details(task_id):
         cursor.execute(comments_sql, (task_id,))
         comments = cursor.fetchall()
 
-        # 格式化日期字段
         def format_date(dt):
             return dt.strftime('%Y/%m/%d %H:%M:%S') if isinstance(dt, datetime) else None
 
-        # 处理 assistant 字段
-        assistant = task["assistant"] or ""  # 處理 None 情況
+        assistant = task["assistant"] or ""
         assistant_list = []
         try:
             if assistant.startswith("[") and assistant.endswith("]"):
@@ -165,7 +153,6 @@ def get_task_details(task_id):
         except (json.JSONDecodeError, AttributeError):
             assistant_list = [assistant] if assistant else []
 
-        # 构建响应数据
         response = {
             "task_id": task["task_id"],
             "name": task["name"],
@@ -196,7 +183,6 @@ def get_task_details(task_id):
         return jsonify({"error": "Internal server error"}), 500
         
     finally:
-        # 確保關閉連接
         if cursor:
             cursor.close()
         if db_conn:
@@ -211,11 +197,9 @@ def update_task_status():
         task_id = data['task_id']
         completed = data['completed']
 
-        # 確保資料庫連接已經建立
         if cursor is None:
             return jsonify({"error": "Database connection is not available"}), 500
 
-        # 更新任務的完成狀態
         sql = """
             UPDATE tasks
             SET completed = %s
@@ -223,7 +207,6 @@ def update_task_status():
         """
         cursor.execute(sql, (completed, task_id))
 
-        # 提交更改
         db.commit()
 
         return jsonify({"message": "Task status updated successfully"}), 200
@@ -241,19 +224,19 @@ def update_task_status():
 @app.route('/tasks', methods=['POST'])
 def add_Task():
     try:
-        data = request.json  # 获取请求的 JSON 数据
+        data = request.json  
         
-        # 检查是否包含必要的字段
+
         required_fields = ["name", "completed", "timeline_id", "task_remark", "assignee"]
         for field in required_fields:
             if field not in data:
                 return jsonify({"error": f"Missing field: {field}"}), 400
 
-        # 处理日期，如果没有日期则为 None
+
         start_date = datetime.strptime(data.get("start_date"), "%Y-%m-%dT%H:%M") if data.get("start_date") else None
         end_date = datetime.strptime(data.get("end_date"), "%Y-%m-%dT%H:%M") if data.get("end_date") else None
 
-        # SQL 插入任务数据
+
         sql = """
             INSERT INTO tasks (name, completed, timeline_id, start_date, end_date, task_remark, assignee, isWork)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
@@ -270,9 +253,9 @@ def add_Task():
         )
         
         cursor.execute(sql, values)
-        new_task_id = cursor.lastrowid  # 获取新任务的 ID
+        new_task_id = cursor.lastrowid  
         
-        # 添加任務創建者到 task_users 表 (role=0)
+
         user_id = data.get('user_id')
         if user_id:
             task_user_sql = """
@@ -281,12 +264,10 @@ def add_Task():
             """
             cursor.execute(task_user_sql, (new_task_id, user_id))
         
-        # 處理協助者 - 先根據學號查詢user_id
-        student_ids = data.get('student_ids', [])  # 獲取學號列表
-        assistant_user_ids = []  # 儲存找到的user_id
+        student_ids = data.get('student_ids', [])  
+        assistant_user_ids = [] 
         
         if student_ids:
-            # 構建IN查詢，一次查詢所有學號對應的user_id
             format_strings = ','.join(['%s'] * len(student_ids))
             sql = f"""
                 SELECT id FROM users 
@@ -296,7 +277,7 @@ def add_Task():
             results = cursor.fetchall()
             assistant_user_ids = [result['id'] for result in results]
             
-            # 檢查是否有學號沒找到對應使用者
+
             if len(assistant_user_ids) != len(student_ids):
                 found_student_ids = set(assistant_user_ids)
                 missing_student_ids = [sid for sid in student_ids if sid not in found_student_ids]
@@ -305,7 +286,7 @@ def add_Task():
                     "missing_student_ids": missing_student_ids
                 }), 400
         
-        # 添加協助者到 task_users 表 (role=1)
+
         for assistant_id in assistant_user_ids:
             assistant_sql = """
                 INSERT INTO task_users (task_id, user_id, role)
@@ -313,9 +294,8 @@ def add_Task():
             """
             cursor.execute(assistant_sql, (new_task_id, assistant_id))
         
-        db.commit()  # 提交事务
+        db.commit()  
         
-        # 返回新任务数据
         task_data = {
             "task_id": new_task_id,
             "name": data["name"],
@@ -326,7 +306,7 @@ def add_Task():
             "task_remark": data["task_remark"],
             "assignee": data["assignee"],
             "isWork": data["isWork"],
-            "assistant_user_ids": assistant_user_ids  # 返回實際添加的user_id列表
+            "assistant_user_ids": assistant_user_ids 
         }
 
         return jsonify(task_data), 201
@@ -343,30 +323,27 @@ def delete_task(task_id):
     try:
         print(f"Deleting task with ID: {task_id}")  # 打印 task_id
 
-        # 检查任务是否存在
         sql_check = "SELECT 1 FROM task_users WHERE task_id = %s"
         cursor.execute(sql_check, (task_id,))
         if cursor.fetchone() is None:
             print(f"No task found with ID: {task_id}")
             return jsonify({"error": "Task not found"}), 404
 
-        # 执行删除操作
         sql = "DELETE FROM task_users WHERE task_id = %s"
         cursor.execute(sql, (task_id,))
         db.commit()
 
-        # 确保有行被删除
         if cursor.rowcount == 0:
             print(f"No task deleted, task_id {task_id} might not exist")
             return jsonify({"error": "Task not found"}), 404
 
         print(f"Task with ID {task_id} deleted successfully")
-        return jsonify({"message": f"Task {task_id} deleted successfully"}), 200  # 返回200成功状态
+        return jsonify({"message": f"Task {task_id} deleted successfully"}), 200  
 
     except Exception as e:
-        db.rollback()  # 遇到错误时回滚
+        db.rollback() 
         print(f"Error deleting task: {e}")
-        return jsonify({"error": "Failed to delete task", "message": str(e)}), 500  # 返回500错误
+        return jsonify({"error": "Failed to delete task", "message": str(e)}), 500  
 
 
 # 新增專案
@@ -374,14 +351,12 @@ def delete_task(task_id):
 def add_timeline():
     try:
         data = request.json
-        # 保持与 GET 方法完全一致的 Cookie 获取方式
         user_id = data.get('user_id') or request.cookies.get('user_id')
-        print(f"获取到的 user_id: {user_id}")  # 调试日志
+        print(f"获取到的 user_id: {user_id}") 
         
         if not user_id:
             return jsonify({"error": "user_id 缺失"}), 401
 
-        # 其余逻辑保持不变...
         sql = """
             INSERT INTO timelines (name, remark, start_date, end_date, progress, created_at) 
             VALUES (%s, %s, %s, %s, %s, NOW())
@@ -398,10 +373,9 @@ def add_timeline():
 
         new_timeline_id = cursor.lastrowid
         
-        # 关联 timeline_users 表
         cursor.execute(
             "INSERT INTO timeline_users   (timeline_id, id, role) VALUES (%s, %s, %s)",
-            (new_timeline_id, user_id, 0)  # 直接使用获取到的 id
+            (new_timeline_id, user_id, 0) 
         )
         db.commit()
 
@@ -416,42 +390,6 @@ def add_timeline():
         print(f"新增專案失敗: {str(e)}")
         return jsonify({"error": "伺服器內部錯誤"}), 500
 
-
-#獲取專案
-# @app.route('/timelines', methods=['GET'])
-# def get_timelines():
-#     try:
-#         #取得user_id
-#         id = request.cookies.get('user_id') # 確保 Cookie 名稱正確
-#         print(f"hello: {id}")  # 印出收到的 user_id
-
-#         if not id:
-#             return jsonify({"error": "user_id is required or not logged in"}), 401 # 401 代表未授權
-        
-#         # 查询所有的时间轴数据
-#         sql = """
-#         SELECT t.*
-#         FROM timelines t
-#         JOIN timeline_users tu ON t.timeline_id = tu.timeline_id
-#         WHERE tu.id = %s;
-#         """
-#         cursor.execute(sql, (id,))
-#         timelines = cursor.fetchall()  # 获取所有记录
-
-#         # 确保处理 remark 字段
-#         for timeline in timelines:
-#             timeline["id"] = timeline["timeline_id"]  # 将 timeline_id 改为 id
-#             del timeline["timeline_id"]  # 删除原始的 timeline_id 字段
-#             timeline["startDate"] = str(timeline["start_date"])  # 转换字段名
-#             timeline["endDate"] = str(timeline["end_date"])      # 转换字段名
-#             del timeline["start_date"]  # 删除原始字段
-#             del timeline["end_date"]    # 删除原始字段
-#             timeline["remark"] = timeline.get("remark", "")  # 确保处理 remark 字段
-
-#         return jsonify(timelines), 200
-#     except Exception as e:
-#         print("查询时间轴时发生错误:", e)
-#         return jsonify({"error": "无法获取时间轴数据"}), 500
 
 #獲取專案
 @app.route('/timelines', methods=['GET'])
@@ -912,53 +850,24 @@ def search_user_by_student_id():
         print("查詢使用者時發生錯誤:", e)
         return jsonify({'error': '伺服器錯誤'}), 500
 
-# @app.route('/invite_user_to_timeline', methods=['POST'])
-# def invite_user_to_timeline():
-#     try:
-#         # 接收前端傳來的數據
-#         data = request.get_json()
-#         print("Received data:", data)  # 打印接收到的数据
-#         timeline_id = data.get('timeline_id')
-#         user_id = data.get('user_id')
-
-#         if not timeline_id or not user_id:
-#             return jsonify({'error': 'timeline_id and user_id are required'}), 400
-        
-#         # 將該使用者加入 timeline_users 表
-#         sql = """
-#             INSERT INTO timeline_users (timeline_id, id, role)
-#             VALUES (%s, %s, 1)
-#         """
-#         cursor.execute(sql, (timeline_id, user_id))
-#         db.commit()
-
-#         return jsonify({'message': '邀請成功'}), 200
-
-#     except Exception as e:
-#         print("邀請使用者時發生錯誤:", e)
-#         db.rollback()  # 回滾事務
-#         return jsonify({'error': '伺服器錯誤'}), 500
 @app.route('/invite_user_to_timeline', methods=['POST'])
 def invite_user_to_timeline():
     try:
-        # 接收前端传来的数据
         data = request.get_json()
-        print("Received data:", data)  # 打印接收到的数据
+        print("Received data:", data) 
         timeline_id = data.get('timeline_id')
         user_id = data.get('user_id')
 
         if not timeline_id or not user_id:
             return jsonify({'error': 'timeline_id and user_id are required'}), 400
         
-        # 将该用户加入 timeline_users 表
         sql = """
             INSERT INTO timeline_users (timeline_id, id, role)
-            VALUES (%s, %s, 1)  # 这里假设默认角色为 '1'（成员）
+            VALUES (%s, %s, 1)  
         """
         cursor.execute(sql, (timeline_id, user_id))
         db.commit()
 
-        # 查询新加入的成员资料（从 timeline_users 表中查询）
         sql = """
             SELECT u.id, u.name, tu.role 
             FROM users u
@@ -968,12 +877,12 @@ def invite_user_to_timeline():
         cursor.execute(sql, (timeline_id, user_id))
         new_member = cursor.fetchone()
 
-        return jsonify({'message': '邀请成功', 'new_member': new_member}), 200
+        return jsonify({'message': '邀請成功', 'new_member': new_member}), 200
 
     except Exception as e:
-        print("邀请用户时发生错误:", e)
+        print("邀請用戶時發生錯誤:", e)
         db.rollback()  # 回滚事务
-        return jsonify({'error': '服务器错误'}), 500
+        return jsonify({'error': '伺服器錯誤'}), 500
 
 
 
