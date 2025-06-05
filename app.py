@@ -352,7 +352,7 @@ def add_timeline():
     try:
         data = request.json
         user_id = data.get('user_id') or request.cookies.get('user_id')
-        print(f"获取到的 user_id: {user_id}") 
+        print(f"獲取到的 user_id: {user_id}") 
         
         if not user_id:
             return jsonify({"error": "user_id 缺失"}), 401
@@ -446,8 +446,8 @@ def get_timelines():
         return jsonify(result), 200
 
     except Exception as e:
-        print("查询时间轴时发生错误:", e)
-        return jsonify({"error": "无法获取时间轴数据"}), 500
+        print("查詢專案時發生錯誤:", e)
+        return jsonify({"error": "無法獲取專案資料"}), 500
 
 
 
@@ -459,23 +459,20 @@ def get_timelines():
 def delete_timeline(timeline_id):
     try:
         data = request.json
-        # 统一获取user_id的方式
         data = request.get_json(silent=True) or {}
         user_id = data.get('user_id') or request.cookies.get('user_id')
         
         if not user_id:
-            return jsonify({"error": "需要用户凭证"}), 401
+            return jsonify({"error": "需要user_id"}), 401
 
         with db.cursor() as cursor:
-            # 简单权限检查（可根据需求调整）
             cursor.execute(
                 "SELECT 1 FROM timeline_users WHERE timeline_id = %s AND id = %s",
                 (timeline_id, user_id)
             )
             if not cursor.fetchone():
-                return jsonify({"error": "无权操作此專案"}), 403
+                return jsonify({"error": "發生錯誤"}), 403
 
-            # 删除操作
             cursor.execute("DELETE FROM timeline_users WHERE timeline_id = %s", (timeline_id,))
             cursor.execute("DELETE FROM timelines WHERE timeline_id = %s", (timeline_id,))
             db.commit()
@@ -493,10 +490,9 @@ def add_comment():
     try:
         data = request.get_json()
         task_id = data['task_id']
-        user_id = data['user_id']  # 预设为 1
+        user_id = data['user_id']  
         task_message = data['task_message']
 
-        # 插入评论到任务评论表
         cursor.execute("""
             INSERT INTO task_comments (task_id, user_id, task_message)
             VALUES (%s, %s, %s)
@@ -564,7 +560,6 @@ def get_comments(task_id):
         cursor.execute(sql, (task_id,))
         comments = cursor.fetchall()
 
-        # 處理可能的二進位數據
         for comment in comments:
             if isinstance(comment['task_message'], (bytes, bytearray)):
                 comment['task_message'] = base64.b64encode(comment['task_message']).decode('utf-8')
@@ -578,7 +573,6 @@ def get_comments(task_id):
         print(f"Error fetching comments: {e}")
         return jsonify({"error": "Internal server error"}), 500
     finally:
-        # 確保關閉連接
         if 'cursor' in locals(): cursor.close()
         if 'db' in locals(): db.close()
 
